@@ -15,7 +15,3 @@ def json_loader(filepath: str) -> Any:
 		print(f"Error: The file {filepath} contains invalid JSON.")
 		print(f"Details: {json_syntax_error}")
 		sys.exit(1)
-
-
-if __name__ == "__main__":
-	json_loader()
