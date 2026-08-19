@@ -1,227 +1,260 @@
+from typing import Any
 from llm_sdk import Small_LLM_Model
-from file_handler import json_loader
 
 
 def generate_value(
-		type_parameter: str,
-		model: Small_LLM_Model,
-		input_ids_list: list[int],
-		generated_tokens: list[int]
-) -> None:
-	"""Generate te correct value based on parameter type"""
-	for step in range(15):
-		logits = model.get_logits_from_input_ids(input_ids_list)
-		sorted_logits = sorted(
-			range(len(logits)),
-			key=lambda i: logits[i],
-			reverse=True
-		)
+        type_parameter: str,
+        model: Small_LLM_Model,
+        input_ids_list: list[int],
+        generated_tokens: list[int]
+) -> Any:
+    """Generate and extract the parameter value from the LLM based on its expected type.
 
-		for token_id in sorted_logits:
-			word = model.decode([token_id])
-			clean_word = word.strip()
+    Args:
+        type_parameter (str): Expected parameter type ('number' or 'string').
+        model (Small_LLM_Model): The LLM wrapper instance used for decoding and logits.
+        input_ids_list (list[int]): Accumulated context token IDs.
+        generated_tokens (list[int]): Tokens generated specifically for this response.
 
-			if clean_word == "," or clean_word == "}":
-				return
-			if type_parameter == "number":
-				if (
-					all(char in "0123456789.-" for char in clean_word)
-					and clean_word != ""
-				):
-					best_token_id = token_id
-					break
-			elif type_parameter == "string":
-				if '"' in clean_word:
-					return
-				if clean_word != "":
-					best_token_id = token_id
-					break
-		new_word = model.decode([best_token_id])
-		print(new_word, end="", flush=True)
-		input_ids_list.append(best_token_id)
-		generated_tokens.append(best_token_id)
+    Returns:
+        Any: The extracted value cast to float/int for numbers, or str for strings.
+    """
+    val_tokens = []
+
+    for step in range(15):
+        logits = model.get_logits_from_input_ids(input_ids_list)
+        sorted_logits = sorted(
+            range(len(logits)),
+            key=lambda i: logits[i],
+            reverse=True
+        )
+
+        best_token_id = None
+        for token_id in sorted_logits:
+            word = model.decode([token_id])
+            clean_word = word.strip()
+
+            if clean_word == "," or clean_word == "}":
+                break
+            if type_parameter == "number":
+                if (
+                    all(char in "0123456789.-" for char in clean_word)
+                    and clean_word != ""
+                ):
+                    best_token_id = token_id
+                    break
+            elif type_parameter == "string":
+                if '"' in clean_word:
+                    break
+                if clean_word != "":
+                    best_token_id = token_id
+                    break
+        if best_token_id is None:
+            break
+
+        input_ids_list.append(best_token_id)
+        generated_tokens.append(best_token_id)
+        val_tokens.append(best_token_id)
+
+    raw_val = model.decode(val_tokens).strip()
+
+    if type_parameter == "number":
+        try:
+            return float(raw_val) if "." in raw_val else int(raw_val)
+        except ValueError:
+            return 0.0
+    return raw_val
+
 
 def force_string(
-		target_string: str,
-		model: Small_LLM_Model,
-		input_ids_list: list[int],
-		generated_tokens: list[int]
+        target_string: str,
+        model: Small_LLM_Model,
+        input_ids_list: list[int],
+        generated_tokens: list[int]
 ) -> None:
-	"""Push the model to generate a correct string"""
-	target_tokens = model.encode(target_string).tolist()[0]
+    """Force specific target tokens into the context and generated token list.
 
-	for forced_token in target_tokens:
-		logits = model.get_logits_from_input_ids(input_ids_list)
+    Args:
+        target_string (str): The exact text sequence to inject.
+        model (Small_LLM_Model): The LLM wrapper instance used to encode the string.
+        input_ids_list (list[int]): Accumulated context token IDs to update.
+        generated_tokens (list[int]): List of generated token IDs to update.
+    """
+    target_tokens = model.encode(target_string).tolist()[0]
 
-		for i in range(len(logits)):
-			if i != forced_token:
-				logits[i] = float('-inf')
-
-		best_token_id = logits.index(max(logits))
-
-		new_word = model.decode([best_token_id])
-		print(new_word ,end="", flush=True)
-
-		input_ids_list.append(best_token_id)
-		generated_tokens.append(best_token_id)
+    input_ids_list.extend(target_tokens)
+    generated_tokens.extend(target_tokens)
 
 
 def nudger(
-		generated_tokens: list[int],
-		encoded_functions: list[list[int]]
+        generated_tokens: list[int],
+        encoded_functions: list[list[int]]
 ) -> list[int]:
-	"""
-	Acts as a Finite State Machine (FSM) state manager for Grammar-Guided Generation.
-	This function tracks the current state of the generation process and determines 
-	the syntactically valid subset of tokens required to maintain compliance with 
-	the target JSON schema. It returns the allowed token ID to be used by the 
-	Logits Processor for masking invalid probabilities.
-	Args:
-		step (int): The current generation step index.
-		vocab_dict (dict): The tokenizer's vocabulary mapping strings to token IDs.
-	Returns:
-		int: The allowed token ID for the current state.
-	"""
-	step = len(generated_tokens)
-	allowed_ids = []
+    """Manage Finite State Machine (FSM) states for Grammar-Guided Generation.
 
-	for func_tokens in encoded_functions:
-		if func_tokens[:step] == generated_tokens:
-			if step < len(func_tokens):
-				allowed_ids.append(func_tokens[step])
-	return allowed_ids	
+    Tracks the current state of the generated sequence and determines
+    the syntactically valid subset of next token IDs from candidate
+    function signatures to enforce schema compliance.
 
+    Args:
+        generated_tokens (list[int]): Token sequence generated so far.
+        encoded_functions (list[list[int]]): Pre-encoded token sequences of valid function prefixes.
 
-def Unconstrained_decoder(
-		model: Small_LLM_Model,
-		input_ids_list: list[int]
-) -> None:
-	"""
-	Unconstrained_decoder is a function that allows the model to
-	generate answers without constraints. This function was created
-	solely for testing purpose.
-	As demonstrated, small language models are notoriously unreliable
-	at generating structured output spontaneously. The solution of
-	this problem lies in constrained decoding.
-	"""
-	print("=== Unconstrained model answer ===")
-	for step in range(30):
-		logits = model.get_logits_from_input_ids(input_ids_list)
-		best_token_id = logits.index(max(logits))
-		new_token_id = best_token_id
-		new_word = model.decode([new_token_id])
-		print(new_word ,end="", flush=True)
-		input_ids_list.append(new_token_id)
-	print("\n\n")
+    Returns:
+        list[int]: List of allowed token IDs for the current generation step.
+    """
+    step = len(generated_tokens)
+    allowed_ids = []
+
+    for func_tokens in encoded_functions:
+        if func_tokens[:step] == generated_tokens:
+            if step < len(func_tokens):
+                allowed_ids.append(func_tokens[step])
+    return allowed_ids
 
 
 def constrained_decoder(
-		model: Small_LLM_Model,
-		input_ids_list: list[int],
-		functions_json: list[dict]
-) -> None:
-	functions_name = [f['name'] for f in functions_json]
-	encoded_functions = []
-	for name in functions_name:
-		full_string = '{"name": "' + name + '", "parameters": {'
-		func_tokens = model.encode(full_string).tolist()[0]
-		encoded_functions.append(func_tokens)
+        model: Small_LLM_Model,
+        input_ids_list: list[int],
+        functions_json: list[dict],
+        user_question: str
+) -> dict:
+    """Perform constrained decoding to pick a function and extract valid parameters.
 
-	generated_tokens = []
-	
-	for step in range(20):
-		logits = model.get_logits_from_input_ids(input_ids_list)
-		allowed_ids = nudger(generated_tokens, encoded_functions)
+    Uses token masking against candidate function definitions to ensure
+    only schema-compliant function calls are generated by the LLM.
 
-		if not allowed_ids or allowed_ids == [None]:
-			break
+    Args:
+        model (Small_LLM_Model): The LLM wrapper instance.
+        input_ids_list (list[int]): Initial prompt token IDs.
+        functions_json (list[dict]): List of available function definitions with schemas.
+        user_question (str): The original natural-language user query.
 
-		for i in range(len(logits)):
-			if i not in allowed_ids:
-				logits[i] = float('-inf')
+    Returns:
+        dict: Structured function call containing 'prompt', 'name', and 'parameters'.
+    """
+    functions_name = [f['name'] for f in functions_json]
+    encoded_functions = []
+    for name in functions_name:
+        full_string = '"name": "' + name + '", "parameters": {'
+        func_tokens = model.encode(full_string).tolist()[0]
+        encoded_functions.append(func_tokens)
 
-		best_token_id = logits.index(max(logits))
+    generated_tokens = []
+    
+    for step in range(20):
+        logits = model.get_logits_from_input_ids(input_ids_list)
+        allowed_ids = nudger(generated_tokens, encoded_functions)
 
-		new_word = model.decode([best_token_id])
-		print(new_word ,end="", flush=True)
+        if not allowed_ids or allowed_ids == [None]:
+            break
 
-		input_ids_list.append(best_token_id)
-		generated_tokens.append(best_token_id)
+        for i in range(len(logits)):
+            if i not in allowed_ids:
+                logits[i] = float('-inf')
 
-	final_text = model.decode(generated_tokens)
+        best_token_id = logits.index(max(logits))
 
-	# function name chosen
-	after_prefix = final_text.split('{"name": "')[1]
-	function_chosen = after_prefix.split('"')[0]
-	parameters = {}
-	for func in functions_json:
-		if func["name"] == function_chosen:
-			parameters = func.get("parameters", {})
-			break
-	parameters_name = list(parameters.keys())
-	for index, name in enumerate(parameters_name):
-		target_string = '"' + name + '": '
-		force_string(target_string, model, input_ids_list, generated_tokens)
+        input_ids_list.append(best_token_id)
+        generated_tokens.append(best_token_id)
 
-		type_parameter = parameters[name]["type"]
-		if type_parameter == "number":
-			generate_value(
-				type_parameter, model,
-				input_ids_list, generated_tokens
-			)
-		elif type_parameter == "string":
-			force_string('"', model, input_ids_list, generated_tokens)
-			generate_value(
-				type_parameter, model,
-				input_ids_list, generated_tokens
-			)
-			force_string('"', model, input_ids_list, generated_tokens)
+    final_text = model.decode(generated_tokens)
 
-		is_last = (index == len(parameters_name) - 1)
-		if not is_last:
-			force_string(', ', model, input_ids_list, generated_tokens)
+    # function name chosen
+    after_prefix = final_text.split('"name": "')[1]
+    function_chosen = after_prefix.split('"')[0]
+    extracted_params = {}
+    parameters = {}
+    for func in functions_json:
+        if func["name"] == function_chosen:
+            parameters = func.get("parameters", {})
+            break
+    parameters_name = list(parameters.keys())
+    for index, name in enumerate(parameters_name):
+        target_string = '"' + name + '": '
+        force_string(target_string, model, input_ids_list, generated_tokens)
 
-	force_string('}', model, input_ids_list, generated_tokens)
-	
-			
+        type_parameter = parameters[name]["type"]
+        if type_parameter == "number":
+            value = generate_value(
+                type_parameter, model,
+                input_ids_list, generated_tokens
+            )
+            extracted_params[name] = value
+        elif type_parameter == "string":
+            force_string('"', model, input_ids_list, generated_tokens)
+            value = generate_value(
+                type_parameter, model,
+                input_ids_list, generated_tokens
+            )
+            extracted_params[name] = value
+            force_string('"', model, input_ids_list, generated_tokens)
 
-	print("\n\n")
+        is_last = (index == len(parameters_name) - 1)
+        if not is_last:
+            force_string(', ', model, input_ids_list, generated_tokens)
+
+    force_string('}', model, input_ids_list, generated_tokens)
+
+    return {
+        "prompt": user_question,
+        "name": function_chosen,
+        "parameters": extracted_params
+    }
 
 
 def llm_interaction(
-		test_quest_json: list[dict[str, str]],
-		functions_json: list[dict]
-) -> None:
-	"""
-	encoded_tensor is: tensor[[sentence_1][sentence_2]]
-		- (enhanced splitter algorithm: BPE - Byte Pair Encoding)
-		- give an ID for every word in the sentences
-	logit a list[fload] 
-		- idx = the word's ID
-		- value: best word choice in prob.
-	"""
-	model = Small_LLM_Model()
+        test_quest_json: list[dict[str, str]],
+        functions_json: list[dict]
+) -> list[dict]:
+    """Format prompts, process queries with the LLM, and collect function call results.
+    Formats function signatures by extracting parameter names and types from
+    `func.get('parameters', {}).items()` using a list comprehension:
+    `[f"{p_name}: {p_info['type']}" for p_name, p_info in func.get('parameters', {}).items()]`.
+    Constructs a ChatML prompt for each query and runs constrained decoding.
+    Args:
+        test_quest_json (list[dict[str, str]]): List of test objects containing natural language prompts.
+        functions_json (list[dict]): List of available function definitions and metadata.
+    Returns:
+        list[dict]: List of structured function call result dictionaries.
+    """
+    model = Small_LLM_Model()
 
-	tools_text = "Available functions:\n"
-	for func in functions_json:
-		tools_text += f"- {func['name']}: {func['description']}\n"
+    tools_text = "Available functions:\n"
+    for func in functions_json:
+        params_desc = ", ".join(
+            [f"{p_name}: {p_info['type']}"
+            for p_name, p_info in func.get("parameters", {}).items()]
+        )
+        tools_text += (
+            f"- {func['name']}({params_desc}): {func['description']}\n"
+        )
 
-	vocab_path = model.get_path_to_vocab_file()
-	print("Vocab path is:", vocab_path)
-	for quest in test_quest_json:
-		user_question = quest["prompt"]
-		prompt = f"{tools_text}\nUser request: {user_question}\n"
+    vocab_path = model.get_path_to_vocab_file()
 
-		encoded_tensor = model.encode(prompt)
-		input_ids_list = encoded_tensor.tolist()[0]
+    all_results = []
+    for quest in test_quest_json:
+        user_question = quest["prompt"]
+        prompt = (
+            "<|im_start|>system\n"
+            "You are a helpful assistant. "
+            "Select the correct tool and extract "
+            "its parameters to answer the user request.\n"
+            f"{tools_text}<|im_end|>\n"
+            f"<|im_start|>user\n{user_question}<|im_end|>\n"
+            "<|im_start|>assistant\n{"
+        )
 
-		# Constrained Decoding function:
-		constrained_decoder(
-			model,
-			input_ids_list,
-			functions_json
-		)
+        encoded_tensor = model.encode(prompt)
+        input_ids_list = encoded_tensor.tolist()[0]
 
-		# Unconstrained Decoding function:
-		# Unconstrained_decoder(model, input_ids_list)
-		
+        # Constrained Decoding function:
+        result_item = constrained_decoder(
+            model,
+            input_ids_list,
+            functions_json,
+            user_question
+        )
+        all_results.append(result_item)
+
+    return all_results

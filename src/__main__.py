@@ -1,5 +1,5 @@
 from parser import get_arguments
-from file_handler import json_loader
+from file_handler import json_loader, json_output
 from validator import function_validator
 from agent import llm_interaction
 
@@ -15,7 +15,8 @@ def main() -> None:
 		functions_name.append(name)
 		
 	input_json = json_loader(args.input)
-	llm_interaction(input_json, functions_json)
+	data = llm_interaction(input_json, functions_json)
+	json_output(data, args.output)
 	
 
 
