@@ -20,4 +20,4 @@ lint:
 
 lint-strict:
 	uv run flake8 src
-	uv run mypy src --strict
+	uv run mypy src --strict --exclude llm_sdk

@@ -4,7 +4,7 @@ import sys
 from typing import Any
 
 
-def json_output(data: list[dict], output_filepath: str) -> None:
+def json_output(data: list[dict[str, Any]], output_filepath: str) -> None:
     """ Save structured data to a file in JSON format.
         Ensures parent directories exist before writing and formats the JSON
         with a 2-space indentation. Exits the program on filesystem errors.

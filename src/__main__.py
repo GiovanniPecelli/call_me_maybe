@@ -1,6 +1,6 @@
-from parser import get_arguments
-from file_handler import json_loader, json_output
-from agent import llm_interaction
+from src.parser import get_arguments
+from src.file_handler import json_loader, json_output
+from src.agent import llm_interaction
 
 
 def main() -> None:

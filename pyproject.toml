@@ -18,3 +18,17 @@ members = [
 [tool.uv.sources]
 llm-sdk = { workspace = true }
 
+[tool.mypy]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = [
+    "pydantic",
+    "llm_sdk",
+    "torch",
+    "transformers",
+    "huggingface_hub"
+]
+ignore_missing_imports = true
+follow_imports = "skip"

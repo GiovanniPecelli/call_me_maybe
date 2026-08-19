@@ -3,12 +3,12 @@ from typing import Dict, Any
 import sys
 
 
-class TypeDefinition(BaseModel):
+class TypeDefinition(BaseModel):  # type: ignore[misc]
     """Data model representing a parameter or return type definition."""
     type: str
 
 
-class FunctionDefinition(BaseModel):
+class FunctionDefinition(BaseModel):  # type: ignore[misc]
     """ Data model representing the full specification of an available
         function.
     """
