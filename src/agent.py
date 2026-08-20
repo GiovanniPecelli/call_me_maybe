@@ -28,9 +28,9 @@ def generate_value(
         Any: The extracted value cast to float/int for numbers, or str for
         strings.
     """
-    val_tokens = []
+    value_tokens = []
 
-    for step in range(15):
+    for step in range(100):
         logits = model.get_logits_from_input_ids(input_ids_list)
 
         if type_parameter == "number":
@@ -39,20 +39,31 @@ def generate_value(
 
         elif type_parameter == "string":
             best_token_id = logits.index(max(logits))
-            clean_word = model.decode([best_token_id]).strip()
-            if '"' in clean_word:
+            word = model.decode([best_token_id])
+            if '"' in word:
+                clean_word = word.split('"')[0]
+                if clean_word != "":
+                    # .tolist() always returns a list (one or more elements).
+                    # Why? LLMs use a system called BPE (Byte-Pair Encoding).
+                    # A single word can be split into multiple tokens. 
+                    # To safely handle any tokenizer rule always ret: list.
+                    extra_token = model.encode(clean_word).tolist()[0]
+                    input_ids_list.extend(extra_token)
+                    generated_tokens.extend(extra_token)
+                    value_tokens.extend(extra_token)
                 break
+            clean_word = word.strip()
 
         if clean_word in [",", "}"]:
             break
 
         input_ids_list.append(best_token_id)
         generated_tokens.append(best_token_id)
-        val_tokens.append(best_token_id)
+        value_tokens.append(best_token_id)
 
     # if the type_parameter expected is "number"
     # -> cast to "float" or "int" bf return
-    raw_val = model.decode(val_tokens).strip()
+    raw_val = model.decode(value_tokens).strip()
     if type_parameter == "number":
         try:
             return float(raw_val) if "." in raw_val else int(raw_val)
@@ -141,18 +152,23 @@ def constrained_decoder(
 
     generated_tokens: list[int] = []
 
-    for step in range(20):
-        logits = model.get_logits_from_input_ids(input_ids_list)
+    for step in range(50):
         allowed_ids = nudger(generated_tokens, encoded_functions)
 
         if not allowed_ids or allowed_ids == [None]:
             break
 
-        #for i in range(len(logits)):
-        #    if i not in allowed_ids:
-        #        logits[i] = float('-inf')
+        if len (allowed_ids) == 1:
+            best_token_id = allowed_ids[0]
+        else:
+            logits = model.get_logits_from_input_ids(input_ids_list)
+            # 1 - INSTEAD to change every single logits
+            #for i in range(len(logits)):
+            #    if i not in allowed_ids:
+            #        logits[i] = float('-inf')
 
-        best_token_id = max(allowed_ids, key=lambda i: logits[i])
+            # 2 - TAKE directly the best_token_id=max("float value")
+            best_token_id = max(allowed_ids, key=lambda i: logits[i])
 
         input_ids_list.append(best_token_id)
         generated_tokens.append(best_token_id)
