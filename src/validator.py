@@ -1,4 +1,5 @@
 from pydantic import BaseModel, ValidationError
+from llm_sdk import Small_LLM_Model
 from typing import Dict, Any
 import sys
 
@@ -39,3 +40,18 @@ def function_validator(raw_functions_list: Any) -> list[FunctionDefinition]:
             print(f"Details: {e}")
             sys.exit(1)
     return validated_functions
+
+
+def tokens_validator(model: Small_LLM_Model) -> list[int]:
+    valid_ids = []
+
+    # Normally Digits and special char are in the first side
+    for i in range(10000):
+        word = model.decode([i]).strip()
+        if word != "" and all(char in "0123456789.-" for char in word):
+            valid_ids.append(i)
+    valid_ids.extend(model.encode(",").tolist()[0])
+    valid_ids.extend(model.encode("}").tolist()[0])
+
+    return valid_ids
+        

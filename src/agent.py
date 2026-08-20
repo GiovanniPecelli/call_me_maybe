@@ -1,15 +1,22 @@
-from typing import Any
 from llm_sdk import Small_LLM_Model
+from src.validator import tokens_validator
+from typing import Any
 
 
 def generate_value(
         type_parameter: str,
         model: Small_LLM_Model,
         input_ids_list: list[int],
-        generated_tokens: list[int]
+        generated_tokens: list[int],
+        valid_ids: list[int]
 ) -> Any:
     """ Generate and extract the parameter value from the LLM based
         on its expected type.
+        __getitem__ - Uses fast C-level native indexing instead of a slow
+        lambda. When calling my_list[1], Python internally executes:
+        my_list.__getitem__(1).
+        Using __getitem__ directly allows us to avoid the slowness of a
+        lambda function.
     Args:
         type_parameter (str): Expected parameter type ('number' or 'string').
         model (Small_LLM_Model): The LLM wrapper instance used for decoding
@@ -25,46 +32,33 @@ def generate_value(
 
     for step in range(15):
         logits = model.get_logits_from_input_ids(input_ids_list)
-        sorted_logits = sorted(
-            range(len(logits)),
-            key=lambda i: logits[i],
-            reverse=True
-        )
 
-        best_token_id = None
-        for token_id in sorted_logits:
-            word = model.decode([token_id])
-            clean_word = word.strip()
+        if type_parameter == "number":
+            best_token_id = max(valid_ids, key=logits.__getitem__)
+            clean_word = model.decode([best_token_id]).strip()
 
-            if clean_word == "," or clean_word == "}":
+        elif type_parameter == "string":
+            best_token_id = logits.index(max(logits))
+            clean_word = model.decode([best_token_id]).strip()
+            if '"' in clean_word:
                 break
-            if type_parameter == "number":
-                if (
-                    all(char in "0123456789.-" for char in clean_word)
-                    and clean_word != ""
-                ):
-                    best_token_id = token_id
-                    break
-            elif type_parameter == "string":
-                if '"' in clean_word:
-                    break
-                if clean_word != "":
-                    best_token_id = token_id
-                    break
-        if best_token_id is None:
+
+        if clean_word in [",", "}"]:
             break
 
         input_ids_list.append(best_token_id)
         generated_tokens.append(best_token_id)
         val_tokens.append(best_token_id)
 
+    # if the type_parameter expected is "number"
+    # -> cast to "float" or "int" bf return
     raw_val = model.decode(val_tokens).strip()
-
     if type_parameter == "number":
         try:
             return float(raw_val) if "." in raw_val else int(raw_val)
         except ValueError:
             return 0.0
+
     return raw_val
 
 
@@ -108,6 +102,8 @@ def nudger(
     step = len(generated_tokens)
     allowed_ids = []
 
+    # if func_tokens[:step] == generated_tokens:
+    # -> builds the available next steps based on what is already written
     for func_tokens in encoded_functions:
         if func_tokens[:step] == generated_tokens:
             if step < len(func_tokens):
@@ -119,7 +115,8 @@ def constrained_decoder(
         model: Small_LLM_Model,
         input_ids_list: list[int],
         functions_json: list[dict[str, Any]],
-        user_question: str
+        user_question: str,
+        valid_ids: list[int]
 ) -> dict[str, Any]:
     """ Perform constrained decoding to pick a function and extract valid
         parameters. Uses token masking against candidate function definitions
@@ -151,11 +148,11 @@ def constrained_decoder(
         if not allowed_ids or allowed_ids == [None]:
             break
 
-        for i in range(len(logits)):
-            if i not in allowed_ids:
-                logits[i] = float('-inf')
+        #for i in range(len(logits)):
+        #    if i not in allowed_ids:
+        #        logits[i] = float('-inf')
 
-        best_token_id = logits.index(max(logits))
+        best_token_id = max(allowed_ids, key=lambda i: logits[i])
 
         input_ids_list.append(best_token_id)
         generated_tokens.append(best_token_id)
@@ -180,14 +177,16 @@ def constrained_decoder(
         if type_parameter == "number":
             value = generate_value(
                 type_parameter, model,
-                input_ids_list, generated_tokens
+                input_ids_list, generated_tokens,
+                valid_ids
             )
             extracted_params[name] = value
         elif type_parameter == "string":
             force_string('"', model, input_ids_list, generated_tokens)
             value = generate_value(
                 type_parameter, model,
-                input_ids_list, generated_tokens
+                input_ids_list, generated_tokens,
+                valid_ids
             )
             extracted_params[name] = value
             force_string('"', model, input_ids_list, generated_tokens)
@@ -206,7 +205,7 @@ def constrained_decoder(
 
 
 def llm_interaction(
-        test_quest_json: list[dict[str, str]],
+        json_input: list[dict[str, str]],
         functions_json: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
     """ Format prompts, process queries with the LLM, and collect function
@@ -225,6 +224,7 @@ def llm_interaction(
         list[dict]: List of structured function call result dictionaries.
     """
     model = Small_LLM_Model()
+    valid_ids = tokens_validator(model)
 
     tools_text = "Available functions:\n"
     for func in functions_json:
@@ -237,7 +237,7 @@ def llm_interaction(
         )
 
     all_results = []
-    for quest in test_quest_json:
+    for quest in json_input:
         user_question = quest["prompt"]
         prompt = (
             "<|im_start|>system\n"
@@ -257,7 +257,8 @@ def llm_interaction(
             model,
             input_ids_list,
             functions_json,
-            user_question
+            user_question,
+            valid_ids
         )
         all_results.append(result_item)
 
