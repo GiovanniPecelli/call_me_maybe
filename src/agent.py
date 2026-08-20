@@ -266,6 +266,13 @@ def llm_interaction(
         )
 
         encoded_tensor = model.encode(prompt)
+        # input_ids_list for every func_definition contein:
+        # === in tools_text ===
+        # f"- {func['name']}        -> Function name
+        # ({params_desc}):          -> params - name: type
+        # {func['description']}\n"  -> Func description
+        # === in user_question ===
+        # Current "user_question"
         input_ids_list = encoded_tensor.tolist()[0]
 
         # Constrained Decoding function:

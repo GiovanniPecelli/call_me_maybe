@@ -5,8 +5,8 @@ from src.agent import llm_interaction
 
 
 def main() -> None:
-    args = get_arguments()
     time_start = time.time()
+    args = get_arguments()
     functions_json = json_loader(args.functions_definition)
 
     functions_name = []
