@@ -29,11 +29,14 @@ def json_loader(filepath: str) -> Any:
     """ Load and parse JSON content from a file.
     Args:
         filepath (str): Path to the target JSON file.
+        encoding='utf-8' convert bytes in characters
     Returns:
+        data can be Any: depend on the file json (curr. list[dict])
         Any: Deserialized Python data structure from the JSON file.
     """
     try:
         with open(filepath, 'r', encoding='utf-8') as file_input:
+            # json.load try to interpretate the file with json syntax
             data = json.load(file_input)
             return data
     except FileNotFoundError:

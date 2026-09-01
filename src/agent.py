@@ -240,21 +240,35 @@ def llm_interaction(
         list[dict]: List of structured function call result dictionaries.
     """
     model = Small_LLM_Model()
+
+    # valid_ids contain validated token -> shortest vocab to improve efficency
     valid_ids = tokens_validator(model)
 
     tools_text = "Available functions:\n"
     for func in functions_json:
-        params_desc = ", ".join([
-            f"{p_name}: {p_info['type']}"
-            for p_name, p_info in func.get("parameters", {}).items()
-        ])
+        params_desc = []
+        for p_name, p_type in func.get("parameters", {}).items():
+            param = f"{p_name}: {p_type['type']}"
+            params_desc.append(param)
+        params_desc = ", ".join(params_desc)
+        # === list comprehension method ===
+        # params_desc = ", ".join([
+        #     f"{p_name}: {p_info['type']}"
+        #     for p_name, p_info in func.get("parameters", {}).items()
+        # ])
         tools_text += (
             f"- {func['name']}({params_desc}): {func['description']}\n"
         )
 
     all_results = []
     for quest in json_input:
+        # extract user_question:
+        # ex: {"prompt": "What is the sum of 2 and 3?"}
         user_question = quest["prompt"]
+
+        # Build the prompt using Qwen's chat format so the model can distinguish
+        # system instructions, user input, and assistant output. The opening "{"
+        # primes the assistant response to generate the required JSON object.
         prompt = (
             "<|im_start|>system\n"
             "You are a helpful assistant. "

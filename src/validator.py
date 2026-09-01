@@ -54,4 +54,3 @@ def tokens_validator(model: Small_LLM_Model) -> list[int]:
     valid_ids.extend(model.encode("}").tolist()[0])
 
     return valid_ids
-        

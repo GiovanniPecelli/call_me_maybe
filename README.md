@@ -12,6 +12,14 @@ Ensure you have Python and `uv` installed, then set up the environment:
 ```bash
 make install
 ```
+If you are on a 42 Network machine (USER -> $USER | $(whoami) | user_name)
+```bash
+mkdir -p /goinfre/$USER/.cache /goinfre/$USER/tmp
+chown -R $(id -u):$(id -g)
+```
+```bash
+XDG_CACHE_HOME=/goinfre/$USER/.cache TMPDIR=/goinfre/$USER/tmp make install
+```
 
 ### Execution
 To run the full test suite and measure execution time:
