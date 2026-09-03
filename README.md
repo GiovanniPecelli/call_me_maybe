@@ -14,11 +14,10 @@ make install
 ```
 If you are on a 42 Network machine (USER -> $USER | $(whoami) | user_name)
 ```bash
-mkdir -p /goinfre/$USER/.cache /goinfre/$USER/tmp
-chown -R $(id -u):$(id -g)
+rm -rf .venv && mkdir -p /goinfre/$USER/{venvs/call_me_maybe,.cache,tmp,uv,huggingface}
 ```
 ```bash
-XDG_CACHE_HOME=/goinfre/$USER/.cache TMPDIR=/goinfre/$USER/tmp make install
+export UV_PROJECT_ENVIRONMENT=/goinfre/$USER/venvs/call_me_maybe UV_LINK_MODE=copy XDG_CACHE_HOME=/goinfre/$USER/.cache TMPDIR=/goinfre/$USER/tmp UV_CACHE_DIR=/goinfre/$USER/uv HF_HOME=/goinfre/$USER/huggingface
 ```
 
 ### Execution
