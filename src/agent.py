@@ -158,14 +158,14 @@ def constrained_decoder(
         if not allowed_ids or allowed_ids == [None]:
             break
 
-        if len (allowed_ids) == 1:
+        if len(allowed_ids) == 1:
             best_token_id = allowed_ids[0]
         else:
             logits = model.get_logits_from_input_ids(input_ids_list)
             # 1 - INSTEAD to change every single logits
-            #for i in range(len(logits)):
-            #    if i not in allowed_ids:
-            #        logits[i] = float('-inf')
+            # for i in range(len(logits)):
+            #     if i not in allowed_ids:
+            #         logits[i] = float('-inf')
 
             # 2 - TAKE directly the best_token_id=max("float value")
             best_token_id = max(allowed_ids, key=lambda i: logits[i])
@@ -240,6 +240,7 @@ def llm_interaction(
         list[dict]: List of structured function call result dictionaries.
     """
     model = Small_LLM_Model()
+    print(model._device)
 
     # valid_ids contain validated token -> shortest vocab to improve efficency
     valid_ids = tokens_validator(model)

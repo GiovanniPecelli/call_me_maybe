@@ -19,7 +19,6 @@ def main() -> None:
         name = func["name"]
         functions_name.append(name)
 
-    # default: functions_calling_test.json
     input_json = json_loader(args.input)
 
     data = llm_interaction(input_json, functions_json)
@@ -31,6 +30,7 @@ def main() -> None:
     minutes = int(execution_time // 60)
     seconds = int(execution_time % 60)
     print(f"Execution time: {minutes} minutes and {seconds} seconds")
+
 
 
 if __name__ == "__main__":
