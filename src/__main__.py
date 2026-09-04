@@ -1,7 +1,8 @@
-import time
-from src.parser import get_arguments
 from src.file_handler import json_loader, json_output
+from src.validator import function_validator
 from src.agent import llm_interaction
+from src.parser import get_arguments
+import time
 
 
 def main() -> None:
@@ -10,6 +11,8 @@ def main() -> None:
     # parsing & json syntax check
     args = get_arguments()
     functions_json = json_loader(args.functions_definition)
+
+    function_validator(functions_json)
 
     functions_name = []
     for func in functions_json:
