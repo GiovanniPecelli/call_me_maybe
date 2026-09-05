@@ -35,7 +35,7 @@ def get_arguments() -> argparse.Namespace:
     )
 
     # print(args.__dict__)
-    # parse.arg() takes the parsed arguments from the terminal 
+    # parse.arg() takes the parsed arguments from the terminal
     # and matches them with the registred arguments
     return args.parse_args()
 

@@ -21,7 +21,11 @@ def main() -> None:
 
     input_json = json_loader(args.input)
 
-    data = llm_interaction(input_json, functions_json)
+    try:
+        data = llm_interaction(input_json, functions_json)
+    except ModuleNotFoundError as e:
+        print(e)
+        return None
 
     json_output(data, args.output)
 
@@ -30,7 +34,6 @@ def main() -> None:
     minutes = int(execution_time // 60)
     seconds = int(execution_time % 60)
     print(f"Execution time: {minutes} minutes and {seconds} seconds")
-
 
 
 if __name__ == "__main__":

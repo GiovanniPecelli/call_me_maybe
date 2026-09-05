@@ -1,6 +1,12 @@
-from llm_sdk import Small_LLM_Model
 from src.validator import tokens_validator
 from typing import Any
+try:
+    from llm_sdk import Small_LLM_Model
+except ModuleNotFoundError as e:
+    raise ModuleNotFoundError(
+        "Module 'Small_LLM_Model' not available\n"
+        f"Details: {e}"
+    )
 
 
 def generate_value(
@@ -45,7 +51,7 @@ def generate_value(
                 if clean_word != "":
                     # .tolist() always returns a list (one or more elements).
                     # Why? LLMs use a system called BPE (Byte-Pair Encoding).
-                    # A single word can be split into multiple tokens. 
+                    # A single word can be split into multiple tokens.
                     # To safely handle any tokenizer rule always ret: list.
                     extra_token = model.encode(clean_word).tolist()[0]
                     input_ids_list.extend(extra_token)
@@ -247,11 +253,11 @@ def llm_interaction(
 
     tools_text = "Available functions:\n"
     for func in functions_json:
-        params_desc = []
+        params_desc_list = []
         for p_name, p_type in func.get("parameters", {}).items():
             param = f"{p_name}: {p_type['type']}"
-            params_desc.append(param)
-        params_desc = ", ".join(params_desc)
+            params_desc_list.append(param)
+        params_desc = ", ".join(params_desc_list)
         # === list comprehension method ===
         # params_desc = ", ".join([
         #     f"{p_name}: {p_info['type']}"
@@ -267,9 +273,10 @@ def llm_interaction(
         # ex: {"prompt": "What is the sum of 2 and 3?"}
         user_question = quest["prompt"]
 
-        # Build the prompt using Qwen's chat format so the model can distinguish
-        # system instructions, user input, and assistant output. The opening "{"
-        # primes the assistant response to generate the required JSON object.
+        # Build the prompt using Qwen's chat format so the model can
+        # distinguish system instructions, user input, and assistant
+        # output. The opening "{" primes the assistant response to
+        # generate the required JSON object.
         prompt = (
             "<|im_start|>system\n"
             "You are a helpful assistant. "
