@@ -150,6 +150,10 @@ def constrained_decoder(
         'prompt', 'name', and 'parameters'.
     """
     functions_name = [f['name'] for f in functions_json]
+
+    # ========================================================================
+    #      Build the constrained decoding for the function_name section
+    # ========================================================================
     encoded_functions = []
     for name in functions_name:
         full_string = '"name": "' + name + '", "parameters": {'
@@ -168,12 +172,7 @@ def constrained_decoder(
             best_token_id = allowed_ids[0]
         else:
             logits = model.get_logits_from_input_ids(input_ids_list)
-            # 1 - INSTEAD to change every single logits
-            # for i in range(len(logits)):
-            #     if i not in allowed_ids:
-            #         logits[i] = float('-inf')
-
-            # 2 - TAKE directly the best_token_id=max("float value")
+            # TAKE the best_token_id in the logits (float_values)
             best_token_id = max(allowed_ids, key=lambda i: logits[i])
 
         input_ids_list.append(best_token_id)
@@ -181,7 +180,8 @@ def constrained_decoder(
 
     final_text = model.decode(generated_tokens)
 
-    # function name chosen
+    # After the name has been chosen
+    # Extract the chosen function's name
     after_prefix = final_text.split('"name": "')[1]
     function_chosen = after_prefix.split('"')[0]
     extracted_params = {}
@@ -190,9 +190,16 @@ def constrained_decoder(
         if func["name"] == function_chosen:
             parameters = func.get("parameters", {})
             break
+    # Contain the params name extracted from functions_json
     parameters_name = list(parameters.keys())
+
+    # ========================================================================
+    #        Build the constrained decoding for the params section
+    # ========================================================================
     for index, name in enumerate(parameters_name):
         target_string = '"' + name + '": '
+        # force_string just build the context
+        # (input_ids_list and generated_tokens)
         force_string(target_string, model, input_ids_list, generated_tokens)
 
         type_parameter = parameters[name]["type"]
@@ -219,6 +226,9 @@ def constrained_decoder(
 
     force_string('}', model, input_ids_list, generated_tokens)
 
+    # ========================================================================
+    #                           Returning data
+    # ========================================================================
     return {
         "prompt": user_question,
         "name": function_chosen,
@@ -238,7 +248,7 @@ def llm_interaction(
         Constructs a ChatML prompt for each query and runs constrained
         decoding.
     Args:
-        test_quest_json (list[dict[str, str]]): List of test objects
+        json_input (list[dict[str, str]]): List of test objects
         containing natural language prompts.
         functions_json (list[dict]): List of available function definitions
         and metadata.
@@ -246,7 +256,7 @@ def llm_interaction(
         list[dict]: List of structured function call result dictionaries.
     """
     model = Small_LLM_Model()
-    print(model._device)
+    # print(model._device)
 
     # valid_ids contain validated token -> shortest vocab to improve efficency
     valid_ids = tokens_validator(model)
@@ -287,14 +297,19 @@ def llm_interaction(
             "<|im_start|>assistant\n{"
         )
 
+        # returns the integer ID numbers that represent
+        # those fragments in the model's dictionary
         encoded_tensor = model.encode(prompt)
         # input_ids_list for every func_definition contein:
         # === in tools_text ===
-        # f"- {func['name']}        -> Function name
-        # ({params_desc}):          -> params - name: type
-        # {func['description']}\n"  -> Func description
+        #   f"- {func['name']}        -> Function name
+        #   ({params_desc}):          -> params - name: type
+        #   {func['description']}\n"  -> Func description
         # === in user_question ===
-        # Current "user_question"
+        #   Current "user_question"
+        # Why ()[0]
+        #   The function deliberately takes the flat list of ids
+        #   and wraps it in an extra list
         input_ids_list = encoded_tensor.tolist()[0]
 
         # Constrained Decoding function:

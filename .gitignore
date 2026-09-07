@@ -8,3 +8,10 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Output directories
+data/output/
+output/
+
+# Documentations
+*.pdf

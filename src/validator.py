@@ -4,13 +4,12 @@ from typing import Dict, Any
 import sys
 
 
-# [misc], ignore a miscellaneous (mean: various) error on this line.
-class TypeDefinition(BaseModel):  # type: ignore[misc]
+class TypeDefinition(BaseModel):
     """Data model representing a parameter or return type definition."""
     type: str
 
 
-class FunctionDefinition(BaseModel):  # type: ignore[misc]
+class FunctionDefinition(BaseModel):
     """ Data model representing the full specification of an available
         function. BaseModel create a data model called FunctionDefinition
     Pydantic's BaseModel provides functionality for:
@@ -57,6 +56,20 @@ def function_validator(raw_functions_list: Any) -> list[FunctionDefinition]:
 
 
 def tokens_validator(model: Small_LLM_Model) -> list[int]:
+    """Build the set of valid token IDs for numeric value generation.
+
+    Scans the first 10,000 token IDs in the model vocabulary and
+    retains those whose decoded string consists solely of digit
+    characters, a decimal point, or a minus sign. Also includes
+    the token IDs for ',' and '}' so the constrained decoder can
+    terminate a value field correctly.
+
+    Args:
+        model (Small_LLM_Model): The LLM wrapper used to decode token IDs.
+
+    Returns:
+        list[int]: Sorted list of token IDs valid during numeric generation.
+    """
     valid_ids = []
 
     # Normally Digits and special char are in the first side

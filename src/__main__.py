@@ -6,18 +6,19 @@ import time
 
 
 def main() -> None:
+    """
+    Main entry point of the application.
+    Parses arguments, loads JSON files, validates the schema,
+    interacts with the LLM to extract parameters, and saves the output.
+    """
     time_start = time.time()
 
     # parsing & json syntax check
     args = get_arguments()
     functions_json = json_loader(args.functions_definition)
 
+    # Pydantic is used as a strict validator to catch bad schemas early.
     function_validator(functions_json)
-
-    functions_name = []
-    for func in functions_json:
-        name = func["name"]
-        functions_name.append(name)
 
     input_json = json_loader(args.input)
 
