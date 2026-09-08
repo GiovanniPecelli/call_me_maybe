@@ -1,9 +1,11 @@
 *This project has been created as part of the 42 curriculum by gpecelli.*
 
-# Call Me Maybe - Constrained Decoding for LLMs
+# Call Me Maybe — Constrained Decoding for LLMs
 
 ## Description
-This project focuses on implementing structured function calling for a lightweight Causal Language Model (Qwen/Qwen3-0.6B) running locally. The goal is to enforce the LLM to strictly output syntactically valid JSON responses matching specific function schemas. This is achieved entirely from scratch without using any external libraries like `transformers`' built-in constrained decoding pipelines, `dspy`, or `outlines`.
+Call Me Maybe implements a lightweight, from-scratch constrained decoding system for a causal language model (Qwen 0.6B). The tool forces the model to produce structured JSON function calls that exactly match predefined schemas, enabling reliable programmatic interpretation of natural-language requests without relying on external constrained-decoding libraries.
+
+This repository contains the constrained decoder, a small LLM wrapper, and a test harness that validates function-calling accuracy across a suite of edge cases (numbers, paths, SQL, templates, encodings).
 
 ## Instructions
 
@@ -34,38 +36,64 @@ Run a specific test for the Unconstrained decoding:
 uv run python test_unconstrained.py
 ```
 
-## Algorithm Explanation
-The core of the solution is a custom Finite State Machine (FSM) referred to as the **Nudger**. 
-When the LLM generates the function name and the JSON structural boilerplate, the Nudger acts as a guardrail. It checks what has been generated so far against a pre-encoded list of valid function signatures. At each generation step, the Nudger computes the `allowed_ids`—the exact subset of token IDs that are legally permitted next.
-For parameter values:
-- **Numbers**: The algorithm uses a pre-computed cache of tokens that contain only numeric characters (`0-9.-`), forcing the model to pick the highest probability token from this restricted set.
-- **Strings**: The model is allowed to use the full vocabulary until it generates a closing quote (`"`).
+## Algorithm explanation
+At its core the constrained decoder uses a small Finite State Machine (the "Nudger") combined with token-level logit inspection to limit the model's output to schema-compliant continuations.
 
-## Design Decisions
-1. **No Global Variables**: To adhere to strict software engineering standards, the pre-computed token lists (like numeric tokens) are initialized once in the main loop and passed down as arguments (`Dependency Injection`), keeping the functions modular and testable.
-2. **Fast C-Level Indexing**: Instead of relying on slow Python `lambda` functions to sort or find the maximum probability in the `logits` list (which has ~150,000 items), the algorithm uses `key=logits.__getitem__`, exploiting Python's underlying C-implementation for massive speedups.
-3. **Smart Token Splitting**: Language models often merge characters into single tokens. For example, when generating a string, the model might output a single token `]"` containing both the text and the closing quote. To handle this, the algorithm decodes the token, splits it by `"`, and safely re-encodes the valid part before closing the parameter, ensuring 100% accuracy.
+- Nudger: pre-encodes valid function signatures as token sequences and, at each generation step, computes `allowed_ids` — the exact token IDs that may legally follow the tokens generated so far. When `allowed_ids` contains a single token, the algorithm auto-appends it without consulting the model logits, which speeds deterministic completions.
+- Numeric tokens: the implementation precomputes a compact set of tokens that represent numeric characters (digits, decimal point, sign). When a numeric parameter is expected, logits are restricted to that set and the highest-scoring token is chosen.
+- String parameters: the decoder permits the full vocabulary until a closing quote is observed. To correctly handle tokens that embed both content and closing quote (token fusion), the decoder decodes the selected token, splits on the quote character, re-encodes the valid portion, and appends it safely.
 
-## Performance Analysis
-The project successfully processes all test prompts in under 5 minutes on a standard CPU.
-- **Initial Execution Time**: ~6 minutes and 30 seconds.
-- **Final Execution Time**: ~4 minutes and 15 seconds.
-This massive performance gain was achieved primarily by skipping the LLM entirely whenever the choice was deterministic. The accuracy is near-perfect due to the strict FSM enforcement.
+This approach keeps generation strictly valid by construction and minimizes downstream parsing and validation.
 
-## Challenges Faced
-1. **CPU Bottlenecks**: A 0.6B parameter model requires billions of floating-point operations per forward pass (`get_logits_from_input_ids`). Calling it for every single character in the JSON boilerplate was too slow.
-   **Solution**: Added a check to see if `len(allowed_ids) == 1`. If the Nudger determines there is only one valid continuation (e.g., the rest of a function name), the algorithm bypasses the neural network completely and just auto-completes the token, saving dozens of seconds per prompt.
-2. **Infinite Loops & Truncated Text**: Using fixed loops like `for step in range(15)` caused long string parameters to be truncated, breaking the JSON.
-   **Solution**: Switched to a robust bounded-loop approach (`for step in range(100)` for values and `50` for structure) which acts as a safe `while True` loop, giving the model enough breathing room to finish long strings without risking an infinite loop.
+## Design decisions
+- Minimal dependencies: implemented from first principles so the behavior is fully observable and debuggable.
+- Deterministic bypass: auto-complete deterministic sequences when the Nudger yields one `allowed_id`, greatly improving speed.
+- Defensive token handling: re-encode partial tokens when a decoded token contains both payload and delimiter characters (e.g., trailing `\"`).
+- No global state: token caches and helper structures are injected rather than global, improving testability.
 
-## Testing Strategy
-1. Created an `unconstrained_decoder` script to test the model's raw generative capabilities in a sandbox environment before applying constraints.
-2. Used the provided `function_calling_tests.json` to iteratively find edge cases (like negative numbers, decimal points, and complex regex strings).
+## Performance analysis
+- Accuracy: enforcing the schema at the token level yields high functional correctness for the test suite (most prompts resolve to valid function calls and parameters).
+- Speed: short-circuiting deterministic continuations reduces unnecessary LLM forward passes; typical full-suite runs complete in a few minutes on a modest CPU.
+- Reliability: the FSM + token-validation approach is robust to common tokenizer edge cases (fused tokens, escaped characters), though some pathological strings may require targeted sanitization.
+
+## Challenges faced
+- Token fusion and escaping: tokens sometimes contain punctuation and escape sequences (e.g., `}\"`), which required careful decoding and re-encoding to avoid truncation or double-escaping.
+- Truncation & loops: naive fixed-step loops caused truncated parameters; switching to bounded loops with sensible limits prevented hangs while allowing long values.
+- Encoding variants: file paths, SQL fragments and Windows-style paths required additional unescape logic to present values in the expected grading format.
+
+## Testing strategy
+1. Unit and integration tests are driven by `data/input/function_calling_tests.json`, covering numeric, string, SQL, path and template examples.
+2. An `unconstrained` mode isolates the model's natural output to reproduce edge cases before applying constraints.
+3. Iterative debugging: token-level debugging printouts were used to inspect generated token IDs and decoded fragments for failing cases.
+
+## Example usage
+Run the full harness (recommended):
+```bash
+make run
+```
+
+Run a single prompt set:
+```bash
+uv run python -m src --input data/input/function_calling_tests.json
+```
+
+Example output (successful function call):
+```
+{'prompt': 'What is the product of 3 and 5?', 'name': 'fn_multiply_numbers', 'parameters': {'a': 3.0, 'b': 5.0}}
+```
 
 ## Resources
-- [Hugging Face Tokenizer Documentation](https://huggingface.co/docs/tokenizers/index)
-- [Grammar-Guided Generation Concepts](https://arxiv.org/abs/2307.09702)
-- **AI Usage**: AI was heavily utilized as a pair-programming partner during the development of this project. It was primarily used to:
-  - Explain tokenization edge cases (like token fusion).
-  - Identify Python-specific bottlenecks (like the `lambda` sorting issue).
-  - Refactor algorithms for CPU optimization and brainstorm FSM bypass strategies.
+- Hugging Face Tokenizer documentation: https://huggingface.co/docs/tokenizers/index
+- Grammar-guided generation (paper): https://arxiv.org/abs/2307.09702
+
+### AI usage disclosure
+AI assisted development in these areas:
+- Explaining tokenization edge cases (token fusion and escapes).
+- Brainstorming and refining the constrained decoding approach.
+- Iterative code suggestions and debugging guidance (token-level instrumentation).
+
+## Contributing
+Issues and PRs are welcome. If you plan to change the constrained-decoder core, please open an issue first to discuss design trade-offs.
+
+## License
+This repository is provided for educational purposes.
