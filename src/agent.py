@@ -13,8 +13,7 @@ def generate_value(
         type_parameter: str,
         model: Small_LLM_Model,
         input_ids_list: list[int],
-        generated_tokens: list[int],
-        valid_ids: list[int]
+        generated_tokens: list[int]
 ) -> Any:
     """ Generate and extract the parameter value from the LLM based
         on its expected type.
@@ -34,12 +33,18 @@ def generate_value(
         Any: The extracted value cast to float/int for numbers, or str for
         strings.
     """
+    # valid_ids contain validated token -> shortest vocab to improve efficency
+    valid_ids = tokens_validator(model)
     value_tokens = []
 
-    for step in range(100):
+    for _ in range(100):
+        # logit is a list of float
+        # the token ID is the index into the logits list.
         logits = model.get_logits_from_input_ids(input_ids_list)
 
         if type_parameter == "number":
+            #  max('ID 0' from valid_ids and find it in logit
+            # -> logits[0] -> max take the highest logits[i] value)
             best_token_id = max(valid_ids, key=logits.__getitem__)
             clean_word = model.decode([best_token_id]).strip()
 
@@ -75,7 +80,6 @@ def generate_value(
             return float(raw_val) if "." in raw_val else int(raw_val)
         except ValueError:
             return 0.0
-
     return raw_val
 
 
@@ -132,8 +136,7 @@ def constrained_decoder(
         model: Small_LLM_Model,
         input_ids_list: list[int],
         functions_json: list[dict[str, Any]],
-        user_question: str,
-        valid_ids: list[int]
+        user_question: str
 ) -> dict[str, Any]:
     """ Perform constrained decoding to pick a function and extract valid
         parameters. Uses token masking against candidate function definitions
@@ -152,7 +155,7 @@ def constrained_decoder(
     functions_name = [f['name'] for f in functions_json]
 
     # ========================================================================
-    #      Build the constrained decoding for the function_name section
+    #    Implement the constrained decoding for the function_name section.
     # ========================================================================
     encoded_functions = []
     for name in functions_name:
@@ -194,7 +197,7 @@ def constrained_decoder(
     parameters_name = list(parameters.keys())
 
     # ========================================================================
-    #        Build the constrained decoding for the params section
+    #       Implement the constrained decoding for the params section
     # ========================================================================
     for index, name in enumerate(parameters_name):
         target_string = '"' + name + '": '
@@ -206,20 +209,19 @@ def constrained_decoder(
         if type_parameter == "number":
             value = generate_value(
                 type_parameter, model,
-                input_ids_list, generated_tokens,
-                valid_ids
+                input_ids_list, generated_tokens
             )
             extracted_params[name] = value
         elif type_parameter == "string":
             force_string('"', model, input_ids_list, generated_tokens)
             value = generate_value(
                 type_parameter, model,
-                input_ids_list, generated_tokens,
-                valid_ids
+                input_ids_list, generated_tokens
             )
             extracted_params[name] = value
             force_string('"', model, input_ids_list, generated_tokens)
 
+        # Params counter -> if is last close with '}' else ','
         is_last = (index == len(parameters_name) - 1)
         if not is_last:
             force_string(', ', model, input_ids_list, generated_tokens)
@@ -258,8 +260,6 @@ def llm_interaction(
     model = Small_LLM_Model()
     # print(model._device)
 
-    # valid_ids contain validated token -> shortest vocab to improve efficency
-    valid_ids = tokens_validator(model)
 
     tools_text = "Available functions:\n"
     for func in functions_json:
@@ -281,7 +281,9 @@ def llm_interaction(
     for quest in json_input:
         # extract user_question:
         # ex: {"prompt": "What is the sum of 2 and 3?"}
-        user_question = quest["prompt"]
+        user_question = quest.get("prompt")
+        if user_question is None:
+            continue
 
         # Build the prompt using Qwen's chat format so the model can
         # distinguish system instructions, user input, and assistant
@@ -307,9 +309,9 @@ def llm_interaction(
         #   {func['description']}\n"  -> Func description
         # === in user_question ===
         #   Current "user_question"
-        # Why ()[0]
+        # Why '.tolist()[0]' ??
         #   The function deliberately takes the flat list of ids
-        #   and wraps it in an extra list
+        #   and wraps it in an extra list[[ids...]]
         input_ids_list = encoded_tensor.tolist()[0]
 
         # Constrained Decoding function:
@@ -317,8 +319,7 @@ def llm_interaction(
             model,
             input_ids_list,
             functions_json,
-            user_question,
-            valid_ids
+            user_question
         )
         all_results.append(result_item)
 
