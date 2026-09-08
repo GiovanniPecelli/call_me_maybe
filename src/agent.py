@@ -7,6 +7,22 @@ except ModuleNotFoundError as e:
         "Module 'Small_LLM_Model' not available\n"
         f"Details: {e}"
     )
+import json
+import re
+
+
+def _clean_extracted_string(s: str) -> Any:
+    if s is None:
+        return s
+    s = s.strip()
+    # remove eventually trailing quote/comma attached from the decoder
+    # (do not strip closing '}' here — it can be part of valid templates)
+    s = re.sub(r'["\s,]+$', '', s)
+    # try unescape JSON (manage \\ -> \)
+    try:
+        return json.loads(f'"{s}"')
+    except Exception:
+        return s.replace('\\\\', '\\')
 
 
 def generate_value(
@@ -42,17 +58,32 @@ def generate_value(
         # the token ID is the index into the logits list.
         logits = model.get_logits_from_input_ids(input_ids_list)
 
-        if type_parameter == "number":
+        if type_parameter == "number" or type_parameter == "integer":
             #  max('ID 0' from valid_ids and find it in logit
             # -> logits[0] -> max take the highest logits[i] value)
             best_token_id = max(valid_ids, key=logits.__getitem__)
             clean_word = model.decode([best_token_id]).strip()
+            if clean_word in [",", "}"]:
+                break
 
         elif type_parameter == "string":
             best_token_id = logits.index(max(logits))
             word = model.decode([best_token_id])
-            if '"' in word:
-                clean_word = word.split('"')[0]
+            idx = -1
+            for i, char in enumerate(word):
+                if char == '"':
+                    # bs is backslash - if bs are even -> quote not excaped
+                    bs = 0
+                    j = i - 1
+                    while j >= 0 and word[j] == '\\':
+                        bs += 1
+                        j -= 1
+                    # real quote found
+                    if bs % 2 == 0:
+                        idx = i
+                        break
+            if idx != -1:
+                clean_word = word[:idx]
                 if clean_word != "":
                     # .tolist() always returns a list (one or more elements).
                     # Why? LLMs use a system called BPE (Byte-Pair Encoding).
@@ -63,10 +94,21 @@ def generate_value(
                     generated_tokens.extend(extra_token)
                     value_tokens.extend(extra_token)
                 break
-            clean_word = word.strip()
 
-        if clean_word in [",", "}"]:
-            break
+            clean_word = word.strip()
+            # print(
+            #     f"[DBG generate_value] word={word!r} "
+            #     f"best_token_id={best_token_id} "
+            #     f"decode={model.decode([best_token_id])!r} "
+            #     f"value_tokens={value_tokens}"
+            # )
+            if clean_word == "}":
+                # safety: ensure the current token decodes to '}'
+                if model.decode([best_token_id]).strip() == "}":
+                    input_ids_list.append(best_token_id)
+                    generated_tokens.append(best_token_id)
+                    value_tokens.append(best_token_id)
+                break
 
         input_ids_list.append(best_token_id)
         generated_tokens.append(best_token_id)
@@ -76,10 +118,9 @@ def generate_value(
     # -> cast to "float" or "int" bf return
     raw_val = model.decode(value_tokens).strip()
     if type_parameter == "number":
-        try:
-            return float(raw_val) if "." in raw_val else int(raw_val)
-        except ValueError:
-            return 0.0
+        return float(raw_val)
+    if type_parameter == "integer":
+        return int(raw_val)
     return raw_val
 
 
@@ -206,7 +247,7 @@ def constrained_decoder(
         force_string(target_string, model, input_ids_list, generated_tokens)
 
         type_parameter = parameters[name]["type"]
-        if type_parameter == "number":
+        if type_parameter == "number" or type_parameter == "integer":
             value = generate_value(
                 type_parameter, model,
                 input_ids_list, generated_tokens
@@ -231,6 +272,11 @@ def constrained_decoder(
     # ========================================================================
     #                           Returning data
     # ========================================================================
+    # Clean/unescape any extracted string parameters
+    for k, v in list(extracted_params.items()):
+        if isinstance(v, str):
+            extracted_params[k] = _clean_extracted_string(v)
+
     return {
         "prompt": user_question,
         "name": function_chosen,
@@ -260,7 +306,6 @@ def llm_interaction(
     model = Small_LLM_Model()
     # print(model._device)
 
-
     tools_text = "Available functions:\n"
     for func in functions_json:
         params_desc_list = []
@@ -284,6 +329,11 @@ def llm_interaction(
         user_question = quest.get("prompt")
         if user_question is None:
             continue
+        if "\\\\" in user_question:
+            try:
+                user_question = json.loads(f'"{user_question}"')
+            except Exception:
+                user_question = user_question.replace("\\\\", "\\")
 
         # Build the prompt using Qwen's chat format so the model can
         # distinguish system instructions, user input, and assistant
@@ -321,6 +371,7 @@ def llm_interaction(
             functions_json,
             user_question
         )
+        # print(f"{result_item}\n")
         all_results.append(result_item)
 
     return all_results
