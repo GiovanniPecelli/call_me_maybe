@@ -28,6 +28,9 @@ def main() -> None:
         print(e)
         return None
 
+    if len(data) == 0:
+        print("No questions are providing!")
+
     json_output(data, args.output)
 
     time_end = time.time()

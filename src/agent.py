@@ -327,7 +327,8 @@ def llm_interaction(
         # extract user_question:
         # ex: {"prompt": "What is the sum of 2 and 3?"}
         user_question = quest.get("prompt")
-        if user_question is None:
+        # skip prompts that are None or only whitespace
+        if user_question is None or str(user_question).strip() == "":
             continue
         if "\\\\" in user_question:
             try:
